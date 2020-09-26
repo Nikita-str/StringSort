@@ -42,7 +42,7 @@ static arr_line_ptr get_line_ptrs(const uint8_t *mem, size_t mem_size)//TODO:UTF
     size_t space_combo = 0; //< cause we are not interesting in end spaces
     bool first_space = true;//<first spaces also not needed
     for (size_t i = 0; i < mem_size; i++) {
-        unsigned char c = mem[i];
+        uint8_t c = mem[i];
         if ((c == '\n') && (line.len != 0)) {
             arr_line_ptr_add(&alp, line);
             line.ptr = NULL;//mem + i + 1;
@@ -91,7 +91,7 @@ uint32_t get_char_UTF_8(const uint8_t *now_char, size_t *byte_readed)//TODO:UTF_
     *byte_readed = 0;
     int numb_of_byte = 0;
     uint32_t ret = 0;
-    unsigned char byte = now_char[0];
+    uint8_t byte = now_char[0];
 
     //read first byte
     if (byte >> (CHAR_BIT - 1)) {
@@ -160,7 +160,7 @@ static inline uint32_t line_cmp_UTF_8_get_next_symb(const line_ptr **line, const
     return c;
 }
 
-LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2)//TODO:UTF_8 NOW!!!!
+LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2, bool invert_order)//TODO:UTF_8 NOW!!!!
 {
     size_t len_now_1 = 0;
     size_t len_now_2 = 0;
@@ -177,30 +177,6 @@ LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2)//TODO:UTF_8 
         if (c1 == GET_CHAR_OTHER_ERROR || c2 == GET_CHAR_OTHER_ERROR) {
             return LINE_CMP_ERROR;
         }
-        /*
-        while (!l1_end) {
-            c1 = get_char_UTF_8(ptr_1, &bytes_readed);
-            len_now_1 += bytes_readed;
-            if (!bytes_readed || len_now_1 > l1->len) { return LINE_CMP_ERROR; }
-            ptr_1 += bytes_readed;
-            if (len_now_1 == l1->len) { l1_end = true; }
-            if (!is_skip_symb_UTF_8(c1)) {
-                break;
-            }
-        }
-        */
-        /*
-        while (!l2_end) {
-            c2 = get_char_UTF_8(ptr_2, &bytes_readed);
-            len_now_2 += bytes_readed;
-            if (!bytes_readed || len_now_2 > l2->len) { return LINE_CMP_ERROR; }
-            ptr_2 += bytes_readed;
-            if (len_now_2 == l2->len) { l2_end = true; }
-            if (!is_skip_symb_UTF_8(c2)) {
-                break;
-            }
-        }
-        */
 
         if (l1_end || l2_end) { break; }
 
@@ -209,23 +185,23 @@ LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2)//TODO:UTF_8 
         l2_end = len_now_2 == l2->len;
 
         if (c1 != c2) {
-            return (c1 < c2) ? LINE_CMP_LESS : LINE_CMP_MORE;
+            return ((c1 < c2) ^ invert_order) ? LINE_CMP_LESS : LINE_CMP_MORE;
         }
     }
 
     if (l1_end && l2_end) {
         return LINE_CMP_EQUAL;
     } else if (l1_end) {
-        return LINE_CMP_LESS;
+        return invert_order ? LINE_CMP_MORE : LINE_CMP_LESS;
     } else if (l2_end) {
-        return LINE_CMP_MORE;
+        return invert_order ? LINE_CMP_LESS : LINE_CMP_MORE; 
     }
 
     assert(0);
     return LINE_CMP_ERROR;
 }
 
-bool line_sort(line_ptr *sort_arr, size_t size)
+bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order)
 {
     LINE_CMP_RES res = LINE_CMP_EQUAL;
 
@@ -234,7 +210,7 @@ bool line_sort(line_ptr *sort_arr, size_t size)
     case 1:
         return true;
     case 2:
-        res = line_cmp_UTF_8(sort_arr + 0, sort_arr + 1);
+        res = line_cmp_UTF_8(sort_arr + 0, sort_arr + 1, invert_order);
         if (res == LINE_CMP_ERROR) {
             return false;
         } else if (res == LINE_CMP_MORE) {
@@ -255,12 +231,12 @@ bool line_sort(line_ptr *sort_arr, size_t size)
     line_ptr piv = sort_arr[mid];
 
     while (left <= right) {
-        while ((res = line_cmp_UTF_8(sort_arr + left, &piv)) == LINE_CMP_LESS) { left++; }
+        while ((res = line_cmp_UTF_8(sort_arr + left, &piv, invert_order)) == LINE_CMP_LESS) { left++; }
         if (res == LINE_CMP_ERROR) { return false; }
 
         static int JUST_FOR_GDB = 0;
         JUST_FOR_GDB++;
-        while ((res = line_cmp_UTF_8(sort_arr + right, &piv)) == LINE_CMP_MORE) { right--; }
+        while ((res = line_cmp_UTF_8(sort_arr + right, &piv, invert_order)) == LINE_CMP_MORE) { right--; }
         if (res == LINE_CMP_ERROR) { return false; }
 
         if (left >= right) { break; }
@@ -270,8 +246,8 @@ bool line_sort(line_ptr *sort_arr, size_t size)
         sort_arr[right--] = line_save;
     }
 
-    ok = ok && line_sort(sort_arr, right + 1);
-    ok = ok && line_sort(sort_arr + right + 1, size - right - 1);
+    ok = ok && line_sort(sort_arr, right + 1, invert_order);
+    ok = ok && line_sort(sort_arr + right + 1, size - right - 1, invert_order);
 
     return ok;
 }
@@ -286,13 +262,13 @@ bool print_line_in_file(FILE *file, line_ptr *lines, size_t line_count)
     return true;
 }
 
-bool TODO_name(const uint8_t *mem, size_t mem_size)
+bool TODO_name(const uint8_t *mem, size_t mem_size, bool invert_order)
 {
     int ok = true;
     FILE *file = NULL;
     arr_line_ptr alp = get_line_ptrs(mem, mem_size);
 
-    ok = line_sort(alp.arr, alp.size);
+    ok = line_sort(alp.arr, alp.size, invert_order);
     if (!ok) { return false; }
 
     file = fopen("oke.txt", "wb");//TODO change oke.txt

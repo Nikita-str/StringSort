@@ -19,6 +19,7 @@ typedef enum PARAM_TYPE
 {
     PARAM_HELP,
     PARAM_OPEN,
+    PARAM_INVERT,
     PARAM_NOT_EXIST
 }PARAM_TYPE;
 
@@ -45,10 +46,14 @@ PARAM_TYPE get_param_type(const char *param)
         case 'O':
         case 'o':
             return PARAM_OPEN;
+        case 'I':
+        case 'i':
+            return PARAM_INVERT;
         }
     } else {
         if (!strcmp(param, "help")) { return PARAM_HELP; }
         if (!strcmp(param, "open")) { return PARAM_OPEN; }
+        if (!strcmp(param, "invert")) { return PARAM_INVERT; }
     }
     return PARAM_NOT_EXIST;
 }
@@ -86,6 +91,7 @@ unsigned char *map_file_in_memory(FILE *file, size_t *mem_size)
 void print_help()
 {
     printf("[-o | --open] %%FileName%%  :  open file for sort string\n");
+    printf("[-i | --invert]  :  invert line output order\n");
     printf("[-h | --help]  :  print that\n");
 }
 
@@ -94,6 +100,7 @@ int main(int argc, char *argv[])
     FILE *file = NULL;
     unsigned char *mem = NULL;
     size_t mem_size = 0;
+    bool invert_order = false;
 
     if (argc < 2) {
         print_help();
@@ -113,6 +120,9 @@ int main(int argc, char *argv[])
         case PARAM_HELP:
             print_help();
             break;
+        case PARAM_INVERT:
+            invert_order = true; // inv_ord = !inv_ord; ?
+            break;
         case PARAM_NOT_EXIST:
             printf("Param not exist: %s\nFor help start program with: -h\n", argv[i]);
             break;
@@ -131,7 +141,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     
-    int b = TODO_name(mem, mem_size);
+    int b = TODO_name(mem, mem_size, invert_order);
     printf("hmm... is %d\n", b);
 
     return 0;

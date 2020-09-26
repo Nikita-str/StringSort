@@ -37,7 +37,7 @@ typedef enum LINE_CMP_RES
 
 //TODO:extern
 
-extern bool line_sort(line_ptr *sort_arr, size_t size);
+extern bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order);
 
-extern bool TODO_name(const uint8_t *mem, size_t mem_size);//TODO : name
+extern bool TODO_name(const uint8_t *mem, size_t mem_size, bool invert_order);//TODO : name
 
