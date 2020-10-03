@@ -69,7 +69,7 @@ bool is_skip_symb_UTF_8(uint32_t c)
            (0x5A < c && c < 0x61) || (0x7A < c && c < 0x8F);
 }
 
-uint32_t get_char_UTF_8(const uint8_t *now_char, size_t *byte_readed)//TODO:UTF_8 NOW!!!!
+uint32_t get_char_UTF_8(const uint8_t *now_char, size_t *byte_readed, int max_byte_read, COMPARE_BY cmp_by)//TODO:UTF_8 NOW!!!!
 {
     const uint8_t MASK_2_BYTE = 0xC0; //110x_xxxx
     const uint8_t MASK_3_BYTE = 0xE0; //1110_xxxx
@@ -87,45 +87,88 @@ uint32_t get_char_UTF_8(const uint8_t *now_char, size_t *byte_readed)//TODO:UTF_
     const uint8_t MASK_FIRST_4_BIT = 0x0F; //0000_1111
     const uint8_t MASK_FIRST_3_BIT = 0x07; //0000_0111
 
+    assert(now_char);
+    assert(byte_readed);
+    assert(0 < max_byte_read && max_byte_read <= UTF_8_MAX_BYTE);
+    assert(cmp_by == COMPARE_BY_END_OF_LINE || cmp_by == COMPARE_BY_START_OF_LINE);
 
     *byte_readed = 0;
     int numb_of_byte = 0;
     uint32_t ret = 0;
     uint8_t byte = now_char[0];
 
+    uint32_t now_shift = 1;//for sort_by == SORT_BY_END_OF_LINE
+
+    if (cmp_by == COMPARE_BY_END_OF_LINE) {
+        int i_back = 0;// !! i_back >= 0
+        while ((byte & MASK_LAST_2_BIT) == MASK_DOP_BIT) {
+            if ((max_byte_read - 1) <= i_back) { //if == => after will be != 10_xxxxxx => too long
+                return GET_CHAR_TOO_LONG_VALUE;
+            }
+
+            ret = ret + (byte & MASK_FIRST_6_BIT) * now_shift;
+            now_shift *= UTF_8_SHIFT_DOP_BLOCK;
+
+            i_back++;
+            if (i_back == UTF_8_MAX_BYTE - 1) { //if == => after will be != 10_xxxxxx => invalid structure (but may be not too long)
+                return GET_CHAR_INVALID_STRUCT;
+            }
+            byte = now_char[-i_back]; // *(now_char - i_back)
+        }
+        numb_of_byte = i_back + 1;
+    }
+
     //read first byte
-    if (byte >> (CHAR_BIT - 1)) {
+    if (byte >> (UTF_8_BYTE_BIT - 1)) {
         if ((byte & MASK_LAST_3_BIT) == MASK_2_BYTE) {
             numb_of_byte = 2;
-            ret = byte & MASK_FIRST_5_BIT;
+            byte = byte & MASK_FIRST_5_BIT;
         } else if ((byte & MASK_LAST_4_BIT) == MASK_3_BYTE) {
             numb_of_byte = 3;
-            ret = byte & MASK_FIRST_4_BIT;
+            byte = byte & MASK_FIRST_4_BIT;
         } else if ((byte & MASK_LAST_5_BIT) == MASK_4_BYTE) {
             numb_of_byte = 4;
-            ret = byte & MASK_FIRST_3_BIT;
+            byte = byte & MASK_FIRST_3_BIT;
         } else {
             return GET_CHAR_INVALID_STRUCT;
         }
     } else { // 0xxx_xxxx
+        if (cmp_by == COMPARE_BY_END_OF_LINE && numb_of_byte != 1) {
+            return GET_CHAR_INVALID_STRUCT;
+        }
         *byte_readed = 1;
         return byte;
     }
 
-    //read other bytes
-    for (int i = 1; i < numb_of_byte; i++) {
-        byte = now_char[i];
-        if ((byte & MASK_LAST_2_BIT) != MASK_DOP_BIT) {
+    if (cmp_by == COMPARE_BY_START_OF_LINE) {
+        ret = byte;
+    } else if (cmp_by == COMPARE_BY_END_OF_LINE) {
+        if (numb_of_byte != numb_of_byte) {
             return GET_CHAR_INVALID_STRUCT;
         }
-        byte = byte & MASK_FIRST_6_BIT;
-        ret = (ret << 6) + byte;
+        ret = ret + (byte & MASK_FIRST_6_BIT) * now_shift;
+    }
+
+    if (numb_of_byte > max_byte_read) {
+        return GET_CHAR_TOO_LONG_VALUE;
+    }
+
+    if (cmp_by == COMPARE_BY_START_OF_LINE) {
+        //read other bytes
+        for (int i = 1; i < numb_of_byte; i++) {
+            byte = now_char[i];
+            if ((byte & MASK_LAST_2_BIT) != MASK_DOP_BIT) {
+                return GET_CHAR_INVALID_STRUCT;
+            }
+            byte = byte & MASK_FIRST_6_BIT;
+            ret = (ret << 6) + byte;
+        }
     }
 
     //check diaposone:
     switch (numb_of_byte) {
     case 2:
-        if (ret < 0x0080 || ret > 0x07FF) { return GET_CHAR_INVALID_VALUE; }
+        if (ret < 0x0080 || ret > 0x07FF) { return GET_CHAR_INVALID_VALUE; } 
         break;
     case 3:
         if (ret < 0x0800 || ret > 0xFFFF) { return GET_CHAR_INVALID_VALUE; }
@@ -143,24 +186,34 @@ uint32_t get_char_UTF_8(const uint8_t *now_char, size_t *byte_readed)//TODO:UTF_
     return ret;
 }
 
-static inline uint32_t line_cmp_UTF_8_get_next_symb(const line_ptr **line, const uint8_t **ptr, size_t *len_now, bool *end)
+static inline uint32_t line_cmp_UTF_8_get_next_symb(const line_ptr *line, const uint8_t *ptr, size_t *len_now, bool *end, COMPARE_BY cmp_by)
 {
     size_t bytes_readed = 0;
     uint32_t c = 0;
     while (!*end) {
-        c = get_char_UTF_8(*ptr, &bytes_readed);
+        int max_byte_read = line->len  - *len_now;
+        max_byte_read = (max_byte_read >= UTF_8_MAX_BYTE) ? UTF_8_MAX_BYTE : max_byte_read;
+        const uint8_t *ptr_char = (cmp_by == COMPARE_BY_START_OF_LINE) ? 
+            ptr + (*len_now) :
+            ptr + (line->len - *len_now - 1); //WARNING: if 3 item will added to cmp_by then it ERROR
+
+        c = get_char_UTF_8(ptr_char, &bytes_readed, max_byte_read, cmp_by);
         *len_now += bytes_readed;
-        if (!bytes_readed || *len_now > (*line)->len) { return GET_CHAR_INVALID_STRUCT; }
-        *ptr += bytes_readed;
+        if (!bytes_readed) { 
+            assert(GET_CHAR_LAST_VALID_VALUE < c);  
+            return c; 
+        }
+        if (*len_now > line->len) { return GET_CHAR_INVALID_STRUCT; }
+        //if (cmp_by == COMPARE_BY_START_OF_LINE) { ptr += bytes_readed; }
         if (!is_skip_symb_UTF_8(c)) {
             break;
         }
-        if (*len_now == (*line)->len) { *end = true; }
+        if (*len_now == line->len) { *end = true; }
     }
     return c;
 }
 
-LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2, bool invert_order)//TODO:UTF_8 NOW!!!!
+LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2, bool invert_order, COMPARE_BY cmp_by)//TODO:UTF_8 NOW!!!!
 {
     size_t len_now_1 = 0;
     size_t len_now_2 = 0;
@@ -172,9 +225,9 @@ LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2, bool invert_
     bool l2_end = len_now_2 == l2->len;
 
     while (!l1_end && !l2_end) {
-        uint32_t c1 = line_cmp_UTF_8_get_next_symb(&l1, &ptr_1, &len_now_1, &l1_end);
-        uint32_t c2 = line_cmp_UTF_8_get_next_symb(&l2, &ptr_2, &len_now_2, &l2_end);
-        if (c1 == GET_CHAR_OTHER_ERROR || c2 == GET_CHAR_OTHER_ERROR) {
+        uint32_t c1 = line_cmp_UTF_8_get_next_symb(l1, ptr_1, &len_now_1, &l1_end, cmp_by);
+        uint32_t c2 = line_cmp_UTF_8_get_next_symb(l2, ptr_2, &len_now_2, &l2_end, cmp_by);
+        if (GET_CHAR_LAST_VALID_VALUE < c1 || GET_CHAR_LAST_VALID_VALUE < c2) {
             return LINE_CMP_ERROR;
         }
 
@@ -201,7 +254,7 @@ LINE_CMP_RES line_cmp_UTF_8(const line_ptr *l1, const line_ptr *l2, bool invert_
     return LINE_CMP_ERROR;
 }
 
-bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order)
+bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order, COMPARE_BY cmp_by)
 {
     LINE_CMP_RES res = LINE_CMP_EQUAL;
 
@@ -210,7 +263,7 @@ bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order)
     case 1:
         return true;
     case 2:
-        res = line_cmp_UTF_8(sort_arr + 0, sort_arr + 1, invert_order);
+        res = line_cmp_UTF_8(sort_arr + 0, sort_arr + 1, invert_order, cmp_by);
         if (res == LINE_CMP_ERROR) {
             return false;
         } else if (res == LINE_CMP_MORE) {
@@ -231,12 +284,12 @@ bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order)
     line_ptr piv = sort_arr[mid];
 
     while (left <= right) {
-        while ((res = line_cmp_UTF_8(sort_arr + left, &piv, invert_order)) == LINE_CMP_LESS) { left++; }
+        while ((res = line_cmp_UTF_8(sort_arr + left, &piv, invert_order, cmp_by)) == LINE_CMP_LESS) { left++; }
         if (res == LINE_CMP_ERROR) { return false; }
 
         static int JUST_FOR_GDB = 0;
         JUST_FOR_GDB++;
-        while ((res = line_cmp_UTF_8(sort_arr + right, &piv, invert_order)) == LINE_CMP_MORE) { right--; }
+        while ((res = line_cmp_UTF_8(sort_arr + right, &piv, invert_order, cmp_by)) == LINE_CMP_MORE) { right--; }
         if (res == LINE_CMP_ERROR) { return false; }
 
         if (left >= right) { break; }
@@ -246,8 +299,8 @@ bool line_sort(line_ptr *sort_arr, size_t size, bool invert_order)
         sort_arr[right--] = line_save;
     }
 
-    ok = ok && line_sort(sort_arr, right + 1, invert_order);
-    ok = ok && line_sort(sort_arr + right + 1, size - right - 1, invert_order);
+    ok = ok && line_sort(sort_arr, right + 1, invert_order, cmp_by);
+    ok = ok && line_sort(sort_arr + right + 1, size - right - 1, invert_order, cmp_by);
 
     return ok;
 }
@@ -262,13 +315,13 @@ bool print_line_in_file(FILE *file, line_ptr *lines, size_t line_count)
     return true;
 }
 
-bool TODO_name(const uint8_t *mem, size_t mem_size, bool invert_order)
+bool TODO_name(const uint8_t *mem, size_t mem_size, bool invert_order, COMPARE_BY cmp_by)
 {
     int ok = true;
     FILE *file = NULL;
     arr_line_ptr alp = get_line_ptrs(mem, mem_size);
 
-    ok = line_sort(alp.arr, alp.size, invert_order);
+    ok = line_sort(alp.arr, alp.size, invert_order, cmp_by);
     if (!ok) { return false; }
 
     file = fopen("oke.txt", "wb");//TODO change oke.txt

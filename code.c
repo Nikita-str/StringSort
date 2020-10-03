@@ -93,6 +93,14 @@ void print_help()
     printf("[-o | --open] %%FileName%%  :  open file for sort string\n");
     printf("[-i | --invert]  :  invert line output order\n");
     printf("[-h | --help]  :  print that\n");
+    //TODO:
+    printf("[-fo | --file_out] [start | end | primary] %%FileOutName%% :  file for appropriate output\n");
+    //? : printf("[-c | --encoding] [utf8 | utf32] :  what encoding of in file\n");
+    printf("[-t | --type_of_out] [s &| e &| p] :  what files to output\n"
+           "    s - for output with sorting by {s}tart line order\n"
+           "    e - for output with sorting by {e}nd line order\n"
+           "    p - for output with sorting by {p}rimordial line order\n"
+           "    by default: -t sep\n");
 }
 
 int main(int argc, char *argv[]) 
@@ -101,6 +109,7 @@ int main(int argc, char *argv[])
     unsigned char *mem = NULL;
     size_t mem_size = 0;
     bool invert_order = false;
+    COMPARE_BY cmp_by = COMPARE_BY_START_OF_LINE;
 
     if (argc < 2) {
         print_help();
@@ -141,7 +150,8 @@ int main(int argc, char *argv[])
         return 0;
     }
     
-    int b = TODO_name(mem, mem_size, invert_order);
+    cmp_by = COMPARE_BY_END_OF_LINE;
+    int b = TODO_name(mem, mem_size, invert_order, cmp_by);
     printf("hmm... is %d\n", b);
 
     return 0;
