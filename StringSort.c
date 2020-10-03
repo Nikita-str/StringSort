@@ -315,23 +315,48 @@ bool print_line_in_file(FILE *file, line_ptr *lines, size_t line_count)
     return true;
 }
 
-bool TODO_name(const uint8_t *mem, size_t mem_size, bool invert_order, COMPARE_BY cmp_by)
+bool TODO_name(const uint8_t *mem, size_t mem_size, bool invert_order, const char *files_sep[], uint32_t files_flag)
 {
     int ok = true;
     FILE *file = NULL;
+
     arr_line_ptr alp = get_line_ptrs(mem, mem_size);
 
-    ok = line_sort(alp.arr, alp.size, invert_order, cmp_by);
-    if (!ok) { return false; }
+    for (int i = 0; i < 2; i++) {
+        if ((files_flag & (1 << i)) == 0) continue;
+        COMPARE_BY cmp_by = i;
+        ok = line_sort(alp.arr, alp.size, invert_order, cmp_by);
+        if (!ok) { goto BAD_EXIT; }
 
-    file = fopen("oke.txt", "wb");//TODO change oke.txt
-    if (!file) { return false; }
+        file = fopen(files_sep[i], "wb");
+        if (!file) { goto BAD_EXIT; }
 
-    ok = print_line_in_file(file, alp.arr, alp.size);
-    if (!ok) { return false; }
-    
+        ok = print_line_in_file(file, alp.arr, alp.size);
+        if (!ok) {
+            fclose(file);
+            goto BAD_EXIT;
+        }
+        ok = fclose(file);
+        if (ok != 0) { goto BAD_EXIT; }
+    }
+
+    if (files_flag & 0b100) {
+        file = fopen(files_sep[2], "wb");
+        if (!file) { goto BAD_EXIT; }
+
+        size_t size = fwrite(mem, sizeof(*mem), mem_size, file);
+        if (size != mem_size) {
+            fclose(file);
+            goto BAD_EXIT;
+        }
+        ok = fclose(file);
+        if (ok != 0) { goto BAD_EXIT; }
+    }
+
     arr_line_ptr_free(&alp);
-    ok = fclose(file);
-    if (ok != 0) { return false; }
     return true;
+
+    BAD_EXIT:
+    arr_line_ptr_free(&alp);
+    return false;
 }
